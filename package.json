@@ -1,0 +1,57 @@
+{
+  "name": "chat-canvas",
+  "displayName": "Chat Canvas",
+  "description": "A spatial map of your Cursor and Claude conversations. Open a bubble in the original chat, group and link threads, and hand context to a new one.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "extensionKind": ["ui"],
+  "categories": ["Other"],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onCommand:chatCanvas.open",
+    "onView:chatCanvas.board"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "chatCanvas.open",
+        "title": "Chat Canvas: Open Map",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "chatCanvas.refresh",
+        "title": "Chat Canvas: Refresh"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "chatCanvas.open",
+        "key": "ctrl+alt+g",
+        "mac": "cmd+alt+g"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "chatCanvas",
+          "title": "Chat Canvas",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "chatCanvas": [
+        {
+          "type": "webview",
+          "id": "chatCanvas.board",
+          "name": "Canvas",
+          "retainContextWhenHidden": true
+        }
+      ]
+    }
+  }
+}

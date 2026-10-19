@@ -1,0 +1,5 @@
+.vscode/**
+preview/**
+**/*.py
+**/*.md
+.gitignore

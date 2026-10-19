@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat map prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #14120e;
+      --card: #1e1b16;
+      --line: #3a342c;
+      --text: #f3efe6;
+      --muted: #a39888;
+      --faint: #6f675c;
+      --hot: #e8a05a;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.4 "Segoe UI", sans-serif;
+    }
+    header {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 16px 20px 0;
+    }
+    h1 { font-size: 18px; font-weight: 600; margin: 0 12px 0 0; }
+    button {
+      font: inherit;
+      color: var(--text);
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 12px;
+      cursor: pointer;
+    }
+    button.current { border-color: var(--hot); color: var(--hot); }
+    button:disabled { opacity: 0.4; cursor: default; }
+    #note { color: var(--muted); padding: 8px 20px 0; min-height: 1.4em; }
+    #stage {
+      position: relative;
+      height: calc(100% - 150px);
+      min-height: 420px;
+      margin: 12px 20px 20px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+    .node {
+      position: absolute;
+      text-align: left;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      cursor: pointer;
+    }
+    .node.hot { border-color: var(--hot); }
+    .node.quiet { opacity: 0.55; }
+    .node strong { display: block; font-size: 15px; }
+    .node span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .bar { margin-top: 8px; height: 4px; border-radius: 2px; background: #2c2822; overflow: hidden; }
+    .bar i { display: block; height: 100%; background: var(--hot); }
+    svg.links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .tag { position: absolute; color: var(--faint); font-size: 12px; pointer-events: none; }
+    #brief {
+      display: none;
+      padding: 0 20px 24px;
+    }
+    #brief.open { display: block; }
+    #brief h2 { font-size: 18px; margin: 0 0 10px; }
+    .actions { display: flex; gap: 8px; margin-bottom: 14px; }
+    .split { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 16px; }
+    .card { border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--card); }
+    .card h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); font-weight: 600; }
+    .card p { margin: 0 0 6px; }
+    .left p { color: var(--muted); }
+    @media (max-width: 720px) { .split { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Chat map</h1>
+    <button id="back" type="button">All jobs</button>
+    <button id="job-crumb" type="button" disabled hidden>Job</button>
+  </header>
+  <p id="note">Click a job.</p>
+  <div id="stage"></div>
+  <section id="brief"></section>
+  <script>
+    const jobs = [
+      { id: "auth", name: "Auth refresh", detail: "3 chats · waiting on you", hot: true, quiet: false, left: "6%", top: "12%", width: "42%" },
+      { id: "map", name: "Chat map", detail: "4 chats · working", hot: false, quiet: false, left: "54%", top: "8%", width: "40%" },
+      { id: "audio", name: "Audio output", detail: "2 chats · needs you", hot: true, quiet: false, left: "10%", top: "58%", width: "36%" },
+      { id: "review", name: "Reviewers", detail: "1 chat · parked", hot: false, quiet: true, left: "56%", top: "62%", width: "34%" }
+    ];
+    const chats = {
+      auth: [
+        { id: "race", title: "Fix the race", detail: "Live · 61% full", full: 61, hot: true, quiet: false, left: "6%", top: "14%", width: "40%", goal: "One refresh when two requests overlap.", files: "auth.service.ts, refresh-lock.ts", constraint: "Do not change the public token shape.", ruledOut: "A process-wide mutex. It deadlocked the tests.", check: "The overlapping-request test passes.", tokens: 380 },
+        { id: "mutex", title: "Mutex attempt", detail: "Parked fork", full: 44, hot: false, quiet: true, left: "54%", top: "14%", width: "40%", goal: "Serialize refresh with a process-wide mutex.", files: "auth.service.ts", constraint: "Tests must stay parallel.", ruledOut: "This approach. It deadlocks.", check: "Not worth continuing.", tokens: 220 },
+        { id: "diff", title: "Review the diff", detail: "Clean context", full: 12, hot: false, quiet: false, left: "6%", top: "58%", width: "40%", goal: "Read the race fix and say if the public token changed.", files: "auth.service.ts", constraint: "Do not edit. Review only.", ruledOut: "Nothing yet.", check: "A short note: safe, or name the line.", tokens: 160 }
+      ],
+      map: [
+        { id: "bubbles", title: "Bubble layout", detail: "Live · 28% full", full: 28, hot: false, quiet: false, left: "8%", top: "18%", width: "40%", goal: "Keep one bubble tied to one chat.", files: "src/host.js, media/main.js", constraint: "A second click focuses. It does not open another chat.", ruledOut: "Guessing the session from timestamps.", check: "Click the empty bubble twice. Same chat.", tokens: 290 },
+        { id: "design", title: "Map design", detail: "Idle", full: 18, hot: false, quiet: false, left: "52%", top: "46%", width: "40%", goal: "Show jobs first, briefs second.", files: "the design notes", constraint: "Do not draw every transcript.", ruledOut: "Equal bubbles for every chat.", check: "A hundred chats still show a handful of jobs.", tokens: 240 }
+      ],
+      audio: [
+        { id: "device", title: "No output device", detail: "Needs you", full: 53, hot: true, quiet: false, left: "8%", top: "22%", width: "40%", goal: "Find why playback is silent.", files: "audio-session.ts", constraint: "Do not change the default device.", ruledOut: "Restarting the driver. It came back silent.", check: "A tone plays on the current device.", tokens: 210 },
+        { id: "driver", title: "Driver notes", detail: "Idle", full: 20, hot: false, quiet: false, left: "52%", top: "50%", width: "40%", goal: "Keep the driver versions that were tried.", files: "notes only", constraint: "Reference, not a task.", ruledOut: "Old driver 12.1.", check: "None.", tokens: 90 }
+      ],
+      review: [
+        { id: "list", title: "Reviewer list", detail: "Parked", full: 8, hot: false, quiet: true, left: "18%", top: "28%", width: "46%", goal: "The names are already found.", files: "OWNERS", constraint: "Do not reopen unless the list changes.", ruledOut: "Searching the whole org again.", check: "None until someone asks.", tokens: 70 }
+      ]
+    };
+    const links = {
+      auth: [
+        { x1: "26%", y1: "26%", x2: "64%", y2: "26%", label: "Fork · copies the history", lx: "34%", ly: "16%" },
+        { x1: "20%", y1: "34%", x2: "20%", y2: "60%", label: "Handoff · ~160 tokens", lx: "24%", ly: "44%" }
+      ],
+      map: [{ x1: "28%", y1: "32%", x2: "58%", y2: "52%", label: "Handoff · ~240 tokens", lx: "36%", ly: "36%" }],
+      audio: [{ x1: "28%", y1: "36%", x2: "58%", y2: "56%", label: "Note · not a task", lx: "34%", ly: "42%" }],
+      review: []
+    };
+
+    const stage = document.getElementById("stage");
+    const brief = document.getElementById("brief");
+    const note = document.getElementById("note");
+    const crumb = document.getElementById("job-crumb");
+    let jobId = "";
+
+    function node(item, onOpen) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "node" + (item.hot ? " hot" : "") + (item.quiet ? " quiet" : "");
+      button.style.left = item.left;
+      button.style.top = item.top;
+      button.style.width = item.width;
+      button.innerHTML = "<strong></strong><span></span>";
+      button.querySelector("strong").textContent = item.name || item.title;
+      button.querySelector("span").textContent = item.detail;
+      if (typeof item.full === "number") {
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        const fill = document.createElement("i");
+        fill.style.width = item.full + "%";
+        bar.append(fill);
+        button.append(bar);
+      }
+      button.addEventListener("click", onOpen);
+      return button;
+    }
+
+    function showCoast() {
+      jobId = "";
+      brief.classList.remove("open");
+      brief.innerHTML = "";
+      stage.hidden = false;
+      crumb.hidden = true;
+      note.textContent = "Click a job. Auth refresh and Audio output are waiting on you.";
+      stage.replaceChildren();
+      for (const job of jobs) stage.append(node(job, () => showJob(job.id)));
+    }
+
+    function showJob(id) {
+      jobId = id;
+      const job = jobs.find((item) => item.id === id);
+      brief.classList.remove("open");
+      brief.innerHTML = "";
+      stage.hidden = false;
+      crumb.hidden = false;
+      crumb.textContent = job.name;
+      note.textContent = job.name + " is open. Click a chat.";
+      stage.replaceChildren();
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("class", "links");
+      for (const link of links[id] || []) {
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", link.x1);
+        line.setAttribute("y1", link.y1);
+        line.setAttribute("x2", link.x2);
+        line.setAttribute("y2", link.y2);
+        line.setAttribute("stroke", "#6f675c");
+        svg.append(line);
+        const tag = document.createElement("div");
+        tag.className = "tag";
+        tag.style.left = link.lx;
+        tag.style.top = link.ly;
+        tag.textContent = link.label;
+        stage.append(tag);
+      }
+      stage.prepend(svg);
+      for (const chat of chats[id]) stage.append(node(chat, () => showBrief(chat)));
+      if (id === "auth") {
+        const hidden = document.createElement("div");
+        hidden.className = "tag";
+        hidden.style.left = "54%";
+        hidden.style.top = "64%";
+        hidden.textContent = "2 explorations hidden";
+        stage.append(hidden);
+      }
+    }
+
+    function showBrief(chat) {
+      stage.hidden = true;
+      brief.classList.add("open");
+      note.textContent = chat.title + " is open. Focus sends nothing. Hand off sends the short brief.";
+      brief.replaceChildren();
+      const title = document.createElement("h2");
+      title.textContent = chat.title;
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      const focus = document.createElement("button");
+      focus.type = "button";
+      focus.className = "current";
+      focus.textContent = "Focus · 0 tokens";
+      focus.addEventListener("click", () => { note.textContent = "Focused the original chat. Zero tokens sent."; });
+      const hand = document.createElement("button");
+      hand.type = "button";
+      hand.textContent = "Hand off · " + chat.tokens + " tokens";
+      hand.addEventListener("click", () => { note.textContent = "Next chat got the " + chat.tokens + "-token brief. Logs stayed behind."; });
+      actions.append(focus, hand);
+      const split = document.createElement("div");
+      split.className = "split";
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = "<h3>Would be sent · " + chat.tokens + " tokens</h3>";
+      for (const line of [chat.goal, "Files: " + chat.files, chat.constraint, "Ruled out: " + chat.ruledOut, "Check: " + chat.check]) {
+        const p = document.createElement("p");
+        p.textContent = line;
+        card.append(p);
+      }
+      const left = document.createElement("div");
+      left.className = "left";
+      left.innerHTML = "<h3 style='margin:0 0 8px'>Stays in the old chat</h3><p>Files opened while searching</p><p>Command output and stack traces</p><p>Attempts already rejected</p>";
+      split.append(card, left);
+      brief.append(title, actions, split);
+    }
+
+    document.getElementById("back").addEventListener("click", showCoast);
+    crumb.addEventListener("click", () => { if (jobId) showJob(jobId); });
+    showCoast();
+  </script>
+</body>
+</html>
