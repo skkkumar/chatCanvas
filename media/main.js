@@ -45,6 +45,8 @@
   let metaTimer = null;
   let clickOpenTimer = null;
   let promptOpen = false;
+  let forkFor = "";
+  let forkFocus = "";
 
   const shell = el("div", "shell");
   const banner = el("div", "banner");
@@ -99,7 +101,17 @@
     event.stopPropagation();
     groupSelection();
   });
-  panelBar.append(el("span", "", "Chats"), groupBtn, panelToggle);
+  const panelTitle = el("span", "", "Chats");
+  const panelBack = el("button", "panel-back", "List");
+  panelBack.title = "Show the chat list";
+  panelBack.hidden = true;
+  panelBack.addEventListener("click", (event) => {
+    event.stopPropagation();
+    forkFor = "";
+    forkFocus = "";
+    renderChatList();
+  });
+  panelBar.append(panelBack, panelTitle, groupBtn, panelToggle);
   const chatList = el("div", "chat-list");
   inspector.append(panelBar, chatList);
   let panelOpen = true;
@@ -601,6 +613,7 @@
       const items = [
         { label: "Open", run: () => post("open", { id }) },
         { label: "Mind map", run: () => openMindMap(id) },
+        { label: "Fork graph", run: () => showForkGraph(id) },
         { label: "Fork", run: () => post("spawn", { id, mode: "fork" }) },
         { label: "Hand over", run: () => post("spawn", { id, mode: "handover" }) },
         { label: "New topic", run: () => post("spawn", { id, mode: "topic" }) },
@@ -813,7 +826,169 @@
     focusChat(id);
   }
 
+  function showForkGraph(id) {
+    const node = nodeById(id);
+    if (!node) return;
+    forkFor = id;
+    forkFocus = id;
+    setPanel(true);
+    renderChatList();
+  }
+
+  function forkEdges() {
+    const edges = [];
+    const seen = new Set();
+    function add(from, to, directed) {
+      if (!from || !to || from === to) return;
+      const left = nodeById(from);
+      const right = nodeById(to);
+      if (!left || !right) return;
+      let parent = from;
+      let child = to;
+      if (directed || right.forkOf === from) {
+        parent = from;
+        child = to;
+      } else if (left.forkOf === to) {
+        parent = to;
+        child = from;
+      } else if (right.originId === from) {
+        parent = from;
+        child = to;
+      } else if (left.originId === to) {
+        parent = to;
+        child = from;
+      } else if ((left.createdAt || 0) > (right.createdAt || 0)) {
+        parent = to;
+        child = from;
+      }
+      const key = parent + "\0" + child;
+      if (seen.has(key)) return;
+      seen.add(key);
+      edges.push([parent, child]);
+    }
+    for (const link of model.links) {
+      if (link.kind === "fork") add(link.from, link.to);
+    }
+    for (const node of model.nodes) {
+      if (!node.originId) continue;
+      if (/^Fork ·/.test(node.title || "") || /^Fork ·/.test(node.baseTitle || "")) add(node.originId, node.id);
+    }
+    const byTitle = new Map();
+    for (const node of model.nodes) {
+      if (node.source !== "cursor" && node.source !== "claude") continue;
+      const title = node.baseTitle || node.title || "";
+      if (!title || /^\(\d+\)\s+/.test(title)) continue;
+      const key = node.source + "\n" + String(node.project || "").toLowerCase() + "\n" + title;
+      if (!byTitle.has(key)) byTitle.set(key, node);
+    }
+    for (const node of model.nodes) {
+      const title = node.baseTitle || node.title || "";
+      const match = /^\((\d+)\)\s+(.+)$/.exec(title);
+      if (!match) continue;
+      const key = node.source + "\n" + String(node.project || "").toLowerCase() + "\n" + match[2];
+      const parent = byTitle.get(key);
+      if (parent) add(parent.id, node.id, true);
+    }
+    return edges;
+  }
+
+  function forkFamily(id) {
+    const edges = forkEdges();
+    const neighbors = new Map();
+    function touch(nid) {
+      if (!neighbors.has(nid)) neighbors.set(nid, new Set());
+    }
+    touch(id);
+    for (const [parent, child] of edges) {
+      touch(parent);
+      touch(child);
+      neighbors.get(parent).add(child);
+      neighbors.get(child).add(parent);
+    }
+    const component = new Set();
+    const stack = [id];
+    while (stack.length) {
+      const current = stack.pop();
+      if (!current || component.has(current) || !nodeById(current)) continue;
+      component.add(current);
+      for (const next of neighbors.get(current) || []) stack.push(next);
+    }
+    if (!component.size && nodeById(id)) component.add(id);
+    const children = new Map();
+    const childIds = new Set();
+    for (const [parent, child] of edges) {
+      if (!component.has(parent) || !component.has(child)) continue;
+      if (!children.has(parent)) children.set(parent, []);
+      children.get(parent).push(child);
+      childIds.add(child);
+    }
+    const roots = [...component].filter((nid) => !childIds.has(nid));
+    roots.sort((a, b) => (nodeById(a).createdAt || 0) - (nodeById(b).createdAt || 0) || String(a).localeCompare(String(b)));
+    const ordered = [];
+    const placed = new Set();
+    function visit(nid, depth) {
+      if (placed.has(nid)) return;
+      const node = nodeById(nid);
+      if (!node) return;
+      placed.add(nid);
+      ordered.push({ id: nid, node, depth });
+      const kids = (children.get(nid) || []).slice().sort((a, b) => (nodeById(a).createdAt || 0) - (nodeById(b).createdAt || 0) || String(a).localeCompare(String(b)));
+      for (const kid of kids) visit(kid, depth + 1);
+    }
+    for (const root of roots) visit(root, 0);
+    for (const nid of component) visit(nid, 0);
+    return ordered;
+  }
+
+  function renderForkGraph() {
+    chatList.replaceChildren();
+    const node = nodeById(forkFor);
+    panelBack.hidden = false;
+    groupBtn.hidden = true;
+    inspector.classList.add("showing-forks");
+    panelTitle.textContent = "Forks";
+    if (!node) {
+      chatList.append(el("p", "chat-none", "That chat is no longer on the board."));
+      return;
+    }
+    const family = forkFamily(forkFor);
+    const forks = Math.max(0, family.length - 1);
+    chatList.append(el("p", "fork-count", forks === 1 ? "1 fork" : forks + " forks"));
+    if (!forks) chatList.append(el("p", "fork-empty", "No forks from this chat yet. Fork it, and each branch is listed here."));
+    for (const item of family) {
+      const kind = statusKind(item.node);
+      const row = el("button", "chat-row fork-row" + (item.id === forkFocus ? " selected" : "") + (item.node.hidden ? " off-board" : ""));
+      row.type = "button";
+      row.style.setProperty("--depth", String(item.depth));
+      const logo = el("span", "logo logo-" + (item.node.source === "claude" ? "claude" : "cursor"));
+      logo.innerHTML = item.node.source === "claude" ? CLAUDE_LOGO : CURSOR_LOGO;
+      const text = el("span", "chat-copy");
+      const where = item.depth === 0 ? "Root" : "Fork";
+      const meta = item.node.hidden ? "Off the board" : where + " · " + (STATUS[item.node.status] || "Idle");
+      text.append(el("span", "t", item.node.title || "Untitled"), el("span", "m", meta));
+      row.append(el("span", "st " + kind), logo, text);
+      row.addEventListener("click", () => jumpToFork(item.id));
+      chatList.append(row);
+    }
+  }
+
+  function jumpToFork(id) {
+    const node = nodeById(id);
+    if (!node) return;
+    forkFocus = id;
+    if (node.hidden) restoreChat(id);
+    else focusChat(id);
+  }
+
   function renderChatList() {
+    if (forkFor) {
+      renderForkGraph();
+      return;
+    }
+    panelBack.hidden = true;
+    groupBtn.hidden = false;
+    inspector.classList.remove("showing-forks");
+    panelTitle.textContent = "Chats";
     chatList.replaceChildren();
     const rows = listChats();
     if (!rows.length) {

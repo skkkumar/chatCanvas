@@ -522,7 +522,18 @@ body.sidebar #inspector.collapsed { max-height: 36px; width: auto; }
   padding: 0;
 }
 .panel-toggle:hover { background: rgba(0, 0, 0, 0.06); }
+.panel-back {
+  border: 0;
+  background: transparent;
+  color: #1d1d1f;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 4px;
+}
+.panel-back:hover { color: #000; }
 .panel-group {
+  margin-left: auto;
   border: 0;
   border-radius: 99px;
   background: #16181d;
@@ -533,8 +544,10 @@ body.sidebar #inspector.collapsed { max-height: 36px; width: auto; }
 .panel-group:hover { background: #000; }
 #inspector.collapsed .panel-bar span,
 #inspector.collapsed .panel-group,
+#inspector.collapsed .panel-back,
 #inspector.collapsed .chat-list,
 #inspector.collapsed .chat-detail { display: none; }
+#inspector.showing-forks.collapsed::after { content: "Forks"; }
 #inspector.collapsed .panel-bar { justify-content: center; padding: 8px 0; }
 #inspector.collapsed::after {
   content: "Chats";
@@ -550,6 +563,23 @@ body.sidebar #inspector.collapsed { max-height: 36px; width: auto; }
 body.sidebar #inspector.collapsed::after { writing-mode: horizontal-tb; transform: none; margin: 0 12px; }
 
 .chat-list { flex: 1; overflow: auto; min-height: 0; padding: 8px 8px 12px; }
+.fork-count {
+  margin: 4px 8px 2px;
+  color: #86868b;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 650;
+}
+.fork-empty {
+  margin: 0 8px 8px;
+  color: #86868b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+button.fork-row {
+  padding-left: calc(8px + var(--depth, 0) * 16px);
+}
 .chat-list h2 {
   margin: 12px 8px 4px;
   font-size: 11px;
